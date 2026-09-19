@@ -13,6 +13,14 @@ from kivy.uix.button import Button
 from kivy.uix.popup import Popup
 from kivy.graphics import Color, Rectangle
 
+try:
+    from android.permissions import request_permissions, check_permission, Permission
+    from android import mActivity
+    from jnius import autoclass
+    ON_ANDROID = True
+except ImportError:
+    ON_ANDROID = False
+
 # Material 3 Tonal Palette (RGBA 0.0 - 1.0)
 COLOR_BG = (0.07, 0.07, 0.09, 1.0)           # #121316
 COLOR_SURFACE = (0.10, 0.11, 0.12, 1.0)      # #1a1c1e
@@ -68,30 +76,76 @@ def find_miyoo_sd_roots():
                 )
     return None, None, None
 
-def find_nova_roots():
+# Common RetroArch save/state locations across different install methods.
+# The plain "RetroArch/saves" layout covers a sideloaded/legacy install;
+# the "Android/data/..." paths cover RetroArch installed from the Play
+# Store on Android 11+, where apps are sandboxed into their own folder.
+RETROARCH_SAVE_SUBDIRS = [
+    "RetroArch/saves",
+    "Android/data/com.retroarch.aarch64/files/saves",
+    "Android/data/com.retroarch/files/saves",
+]
+RETROARCH_STATE_SUBDIRS = [
+    "RetroArch/states",
+    "Android/data/com.retroarch.aarch64/files/states",
+    "Android/data/com.retroarch/files/states",
+]
+
+def find_android_roots():
+    """Scan internal storage and any non-Miyoo SD card for a RetroArch
+    install, checking every known save/state layout rather than a single
+    hardcoded path. Renamed from the original find_nova_roots() — the old
+    name referenced one specific handheld model but the logic itself was
+    always generic RetroArch-on-Android scanning."""
     save_roots = []
     state_roots = []
 
-    int_saves = Path("/storage/emulated/0/RetroArch/saves")
-    int_states = Path("/storage/emulated/0/RetroArch/states")
-    if int_saves.exists():
-        save_roots.append(int_saves)
-    if int_states.exists():
-        state_roots.append(int_states)
-
+    candidate_bases = [Path("/storage/emulated/0")]
     storage_root = Path("/storage")
     if storage_root.exists():
         for item in storage_root.iterdir():
             if item.is_dir() and item.name not in ["emulated", "self", "enc_emulated"]:
                 if not (item / "Saves" / "CurrentProfile").exists():
-                    sd_saves = item / "RetroArch" / "saves"
-                    if sd_saves.exists():
-                        save_roots.append(sd_saves)
-                    sd_states = item / "RetroArch" / "states"
-                    if sd_states.exists():
-                        state_roots.append(sd_states)
+                    candidate_bases.append(item)
+
+    for base in candidate_bases:
+        for sub in RETROARCH_SAVE_SUBDIRS:
+            p = base / sub
+            if p.exists() and p not in save_roots:
+                save_roots.append(p)
+        for sub in RETROARCH_STATE_SUBDIRS:
+            p = base / sub
+            if p.exists() and p not in state_roots:
+                state_roots.append(p)
 
     return save_roots, state_roots
+
+def has_all_files_access():
+    """Check MANAGE_EXTERNAL_STORAGE ("All files access"), required on
+    Android 11+ to read/write outside the app's own sandbox. Returns True
+    on non-Android platforms so desktop testing isn't blocked."""
+    if not ON_ANDROID:
+        return True
+    try:
+        Environment = autoclass("android.os.Environment")
+        return bool(Environment.isExternalStorageManager())
+    except Exception:
+        return False
+
+def open_all_files_access_settings():
+    """Send the user straight to the system settings screen where they can
+    grant All files access, instead of leaving them to hunt for it."""
+    if not ON_ANDROID:
+        return
+    try:
+        Intent = autoclass("android.content.Intent")
+        Settings = autoclass("android.provider.Settings")
+        Uri = autoclass("android.net.Uri")
+        intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+        intent.setData(Uri.parse("package:" + mActivity.getPackageName()))
+        mActivity.startActivity(intent)
+    except Exception:
+        pass
 
 def format_mtime(file_path):
     if file_path and file_path.exists():
@@ -123,6 +177,15 @@ class MiyooSyncApp(App):
     def build(self):
         Window.clearcolor = COLOR_BG
         self.title = "Miyoo Sync"
+
+        if ON_ANDROID:
+            try:
+                request_permissions([
+                    Permission.READ_EXTERNAL_STORAGE,
+                    Permission.WRITE_EXTERNAL_STORAGE,
+                ])
+            except Exception:
+                pass
 
         self.miyoo_saves_path = None
         self.miyoo_states_path = None
@@ -265,6 +328,22 @@ class MiyooSyncApp(App):
         self.list_layout.clear_widgets()
         self.all_scanned_items.clear()
 
+        if not has_all_files_access():
+            self.status_chip.text = "Storage permission needed"
+            self.status_chip.color = COLOR_ERROR_TEXT
+            self.sync_button.disabled = True
+            self.sync_button.background_color = COLOR_DISABLED_BG
+            self.sync_button.color = COLOR_DISABLED_FG
+            self.sync_button.text = "GRANT ALL FILES ACCESS"
+            self.sync_button.disabled = False
+            self.show_popup(
+                "Storage Permission Needed",
+                "Miyoo Sync needs \"All files access\" to read your saves "
+                "on Android 11+.\n\nTap the button below to open Settings, "
+                "enable it for Miyoo Sync, then come back and hit Rescan."
+            )
+            return
+
         self.miyoo_saves_path, self.miyoo_states_path, self.miyoo_sd_root = find_miyoo_sd_roots()
 
         if not self.miyoo_sd_root:
@@ -274,13 +353,20 @@ class MiyooSyncApp(App):
             self.sync_button.background_color = COLOR_DISABLED_BG
             self.sync_button.color = COLOR_DISABLED_FG
             self.sync_button.text = "NO SD CARD DETECTED"
+            self.show_popup(
+                "No SD Card Detected",
+                "Checked every mounted volume under /storage for a "
+                "Saves/CurrentProfile folder (the Onion OS layout) and "
+                "didn't find one.\n\nMake sure the Miyoo's SD card is "
+                "connected via USB-OTG and mounted, then hit Rescan."
+            )
             return
 
         vol_name = self.miyoo_sd_root.name
         self.status_chip.text = f"Connected: {vol_name}"
         self.status_chip.color = COLOR_SUCCESS_TEXT
 
-        nova_save_roots, nova_state_roots = find_nova_roots()
+        nova_save_roots, nova_state_roots = find_android_roots()
 
         nova_files = {}
         for r in nova_save_roots:
@@ -423,11 +509,15 @@ class MiyooSyncApp(App):
             self.sync_button.text = "ALL ITEMS IN SYNC"
 
     def execute_sync(self):
+        if not has_all_files_access():
+            open_all_files_access_settings()
+            return
+
         active = [i for i in self.all_scanned_items if i["direction"] in ["Miyoo -> Nova", "Nova -> Miyoo"] and i["src"] and i["dst"]]
         if not active:
             return
 
-        nova_save_roots, _ = find_nova_roots()
+        nova_save_roots, _ = find_android_roots()
         base_dir = nova_save_roots[0] if nova_save_roots else Path("/storage/emulated/0/RetroArch/saves")
         backup_dir = base_dir / "_unified_backups" / datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_dir.mkdir(parents=True, exist_ok=True)

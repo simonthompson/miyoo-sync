@@ -46,23 +46,24 @@ buildozer android debug
 This was originally built around one specific Android device and a stock
 Onion OS install, so a few things are worth checking if you're adapting it:
 
-- **RetroArch save/state paths** — `find_nova_roots()` in `main.py` checks
-  the default RetroArch locations
-  (`/storage/emulated/0/RetroArch/saves` and `.../states`). If you've
-  changed RetroArch's save directory in its own settings, update the paths
-  here to match.
+- **RetroArch save/state paths** — `find_android_roots()` in `main.py`
+  already checks the most common install layouts (a sideloaded/legacy
+  install at `RetroArch/saves`+`states`, and the sandboxed
+  `Android/data/com.retroarch.../files/...` layout used by Play
+  Store installs on Android 11+), across internal storage and any
+  inserted SD card. If your RetroArch save directory is a custom path
+  set from within RetroArch's own settings, add it to the
+  `RETROARCH_SAVE_SUBDIRS` / `RETROARCH_STATE_SUBDIRS` lists at the top
+  of `main.py`.
 - **Miyoo/Onion OS folder structure** — `find_miyoo_sd_roots()` looks for
   `Saves/CurrentProfile/saves` and `.../states` on the SD card. This
   matches stock Onion OS; a firmware fork with a different folder layout
   will need this updated.
 - **Storage permission** — on Android 11+, the app needs "All Files
-  Access" (`MANAGE_EXTERNAL_STORAGE`), which isn't granted automatically.
-  If a scan comes back empty, check that this permission is enabled for
-  the app in system settings before assuming the paths are wrong.
-- **Function naming** — `find_nova_roots()` is named after the original
-  device it was built for (a Retroid Pocket Nova); it isn't
-  device-specific despite the name; feel free to rename it if you want
-  the naming to read as generic.
+  Access" (`MANAGE_EXTERNAL_STORAGE`). The app now requests the basic
+  storage permissions on launch and, if All Files Access specifically
+  isn't granted, shows a popup with a button that opens the exact system
+  settings screen to enable it — no more silent empty scans.
 
 ## Permissions
 
