@@ -27,7 +27,7 @@ jobs:
       # already ships a working JDK, so this sidesteps the problem.
       - name: Build with Buildozer (official image)
         run: |
-          docker run --rm \
+          yes | docker run --rm -i \
             --volume "${{ github.workspace }}":/home/user/hostcwd \
             ghcr.io/kivy/buildozer:latest \
             android debug
