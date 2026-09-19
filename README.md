@@ -41,6 +41,29 @@ pip install buildozer
 buildozer android debug
 ```
 
+## Adjusting for your own setup
+
+This was originally built around one specific Android device and a stock
+Onion OS install, so a few things are worth checking if you're adapting it:
+
+- **RetroArch save/state paths** — `find_nova_roots()` in `main.py` checks
+  the default RetroArch locations
+  (`/storage/emulated/0/RetroArch/saves` and `.../states`). If you've
+  changed RetroArch's save directory in its own settings, update the paths
+  here to match.
+- **Miyoo/Onion OS folder structure** — `find_miyoo_sd_roots()` looks for
+  `Saves/CurrentProfile/saves` and `.../states` on the SD card. This
+  matches stock Onion OS; a firmware fork with a different folder layout
+  will need this updated.
+- **Storage permission** — on Android 11+, the app needs "All Files
+  Access" (`MANAGE_EXTERNAL_STORAGE`), which isn't granted automatically.
+  If a scan comes back empty, check that this permission is enabled for
+  the app in system settings before assuming the paths are wrong.
+- **Function naming** — `find_nova_roots()` is named after the original
+  device it was built for (a Retroid Pocket Nova); it isn't
+  device-specific despite the name; feel free to rename it if you want
+  the naming to read as generic.
+
 ## Permissions
 
 The app requests `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, and
