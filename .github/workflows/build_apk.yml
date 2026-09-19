@@ -18,22 +18,40 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build with Buildozer Action
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
-        with:
-          workdir: .
-          buildozer_version: stable
+      # Uses the official Kivy Buildozer Docker image directly rather than
+      # the ArtemSBulgakov/buildozer-action wrapper: that wrapper builds an
+      # extra Docker layer on top of the official image which installs
+      # OpenJDK from the openjdk-r PPA, and that PPA currently has no
+      # packages for the Ubuntu release the wrapper's base image pulls in
+      # (apt update 404s before Buildozer ever runs). The official image
+      # already ships a working JDK, so this sidesteps the problem.
+      - name: Build with Buildozer (official image)
+        run: |
+          docker run --rm \
+            --volume "${{ github.workspace }}":/home/user/hostcwd \
+            ghcr.io/kivy/buildozer:latest \
+            android debug
+
+      - name: Locate built APK
+        id: locate_apk
+        run: |
+          APK_PATH=$(find bin -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK found under bin/ — build likely failed upstream." >&2
+            exit 1
+          fi
+          echo "Found APK: $APK_PATH"
+          echo "filename=$APK_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MiyooSync-Release-APK
-          path: ${{ steps.buildozer.outputs.filename }}
+          path: ${{ steps.locate_apk.outputs.filename }}
 
       - name: Attach APK to GitHub Releases (If Tagged)
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: ${{ steps.buildozer.outputs.filename }}
+          files: ${{ steps.locate_apk.outputs.filename }}
           generate_release_notes: true
