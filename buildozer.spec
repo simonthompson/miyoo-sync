@@ -13,7 +13,13 @@ android.wakelock = False
 android.permissions = READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, MANAGE_EXTERNAL_STORAGE
 android.api = 33
 android.minapi = 26
-android.archs = arm64-v8a, armeabi-v7a
+# Single-arch build. python-for-android has a known upstream bug where
+# building multiple archs in one run reuses a shared venv directory for
+# the pure-Python dependency install stage, corrupting pip on the second
+# arch ("ImportError: cannot import name 'BuildDependencyInstallError'").
+# arm64-v8a alone covers virtually all modern Android devices (including
+# the Retroid Pocket line), so this sidesteps the bug entirely.
+android.archs = arm64-v8a
 android.allow_backup = True
 
 [buildozer]
