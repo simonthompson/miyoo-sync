@@ -1,0 +1,28 @@
+name: Package Source Release Zip
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  zip-source:
+    name: Archive repository source as a zip
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create zip archive
+        run: |
+          mkdir -p dist
+          zip -r "dist/miyoo-sync-${GITHUB_REF_NAME}.zip" . \
+            -x ".git/*" ".github/*" "dist/*"
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiyooSync-Source-Zip
+          path: dist/*.zip

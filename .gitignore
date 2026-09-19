@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Buildozer
+.buildozer/
+bin/
+*.apk
+
+# Kivy
+.kivy/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Emulator save data (never commit real save files)
+*.srm
+*.sav
+*.state
+*.state[0-9]
+*.state.auto
