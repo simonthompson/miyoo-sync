@@ -66,6 +66,26 @@ def classify_file_type(name: str):
     return "Other"
 
 
+def base_name(filename: str) -> str:
+    """Strip the save/state suffix to get the underlying game/content name,
+    e.g. 'Zelda.state3' and 'Zelda.srm' both -> 'Zelda'. Used to tell
+    whether a game has ANY presence on a device at all, regardless of
+    which specific save/state file or slot we're looking at."""
+    lower = filename.lower()
+    for ext in sorted(SAVE_EXTENSIONS, key=len, reverse=True):
+        if lower.endswith(ext):
+            return filename[: -len(ext)]
+    if lower.endswith(".state.auto"):
+        return filename[: -len(".state.auto")]
+    for i in range(10):
+        suf = f".state{i}"
+        if lower.endswith(suf):
+            return filename[: -len(suf)]
+    if lower.endswith(".state"):
+        return filename[: -len(".state")]
+    return filename
+
+
 def flush_disk_caches():
     try:
         if hasattr(os, "sync"):
@@ -485,16 +505,28 @@ class MiyooSyncApp(App):
                         nova_files[f.name] = f
 
         miyoo_files = {}
+        # Track which core-subfolder (if any) each game already lives under
+        # on the Miyoo card, e.g. 'gpsp' for a GBA save under
+        # states/gpsp/Game.state0 — Onion OS nests saves/states by core,
+        # unlike Android RetroArch's typically-flat layout. We use this
+        # both to write new files into the RIGHT subfolder (previously
+        # they were flattened into the root and Onion OS never found them)
+        # and to tell whether a game has ANY presence on the Miyoo at all.
+        miyoo_core_by_base = {}
         if self.miyoo_saves_path:
             for f in self.miyoo_saves_path.rglob("*"):
                 if f.is_file() and f.suffix.lower() in SAVE_EXTENSIONS:
                     if f.name not in miyoo_files or f.stat().st_mtime > miyoo_files[f.name].stat().st_mtime:
                         miyoo_files[f.name] = f
+                    rel_dir = f.parent.relative_to(self.miyoo_saves_path)
+                    miyoo_core_by_base.setdefault(base_name(f.name), str(rel_dir))
         if self.miyoo_states_path:
             for f in self.miyoo_states_path.rglob("*"):
                 if f.is_file() and classify_file_type(f.name) in ["Save State", "Auto State"]:
                     if f.name not in miyoo_files or f.stat().st_mtime > miyoo_files[f.name].stat().st_mtime:
                         miyoo_files[f.name] = f
+                    rel_dir = f.parent.relative_to(self.miyoo_states_path)
+                    miyoo_core_by_base.setdefault(base_name(f.name), str(rel_dir))
 
         all_names = sorted(set(nova_files.keys()).union(set(miyoo_files.keys())))
         default_nova_save = nova_save_roots[0] if nova_save_roots else Path("/storage/emulated/0/RetroArch/saves")
@@ -524,12 +556,23 @@ class MiyooSyncApp(App):
                 src = m_file
                 dst = (default_nova_save / name) if kind == "Battery Save" else (default_nova_state / name)
             elif n_file and not m_file:
-                direction = "Nova -> Miyoo"
                 src = n_file
-                if kind == "Battery Save":
-                    dst = self.miyoo_saves_path / name if self.miyoo_saves_path else fallback_miyoo_saves / name
+                base = base_name(name)
+                core_subdir = miyoo_core_by_base.get(base)
+                target_root = (self.miyoo_saves_path if kind == "Battery Save" else self.miyoo_states_path) \
+                    or (fallback_miyoo_saves if kind == "Battery Save" else fallback_miyoo_states)
+                if core_subdir and core_subdir != ".":
+                    dst = target_root / core_subdir / name
                 else:
-                    dst = self.miyoo_states_path / name if self.miyoo_states_path else fallback_miyoo_states / name
+                    dst = target_root / name
+                # Only offer this as an actionable push if the game already
+                # has SOME presence on the Miyoo (any core, any slot) --
+                # otherwise it's very likely a system the Miyoo can't even
+                # run (e.g. a PS1/N64 save from a more capable device), and
+                # auto-pushing it there just clutters the card with saves
+                # for a game that will never load. Defaults to Skip, but
+                # still tappable to force it if you really want to.
+                direction = "Nova -> Miyoo" if base in miyoo_core_by_base else "Skip"
 
             self.all_scanned_items.append({
                 "name": name,
