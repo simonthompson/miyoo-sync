@@ -20,20 +20,16 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # The Android SDK/NDK download and the from-source compile of
-      # Python/SDL2/etc. via python-for-android is what makes a cold build
-      # take 15-20+ minutes. Caching .buildozer (where all of that lands)
-      # means only the first build after a buildozer.spec change pays that
-      # cost — later builds reuse it and typically finish in a couple of
-      # minutes.
-      - name: Cache Buildozer toolchain
-        uses: actions/cache@v4
-        with:
-          path: .buildozer
-          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
-          restore-keys: |
-            buildozer-${{ runner.os }}-
-
+      # NOTE: caching .buildozer here was tried and reverted — it broke a
+      # working build. The SDK/NDK toolchain installs inside the container's
+      # home directory (not the mounted workspace), so caching the
+      # workspace-side .buildozer only captured per-arch build STATE, not
+      # the toolchain itself. That state includes a marker p4a uses to skip
+      # re-preparing the SDK — so a cached run skipped SDK setup while
+      # still having zero Android platforms actually installed in the
+      # fresh container, and failed immediately. Revisit with an explicit
+      # extra volume mount for the container's home-dir SDK/NDK path if the
+      # build time becomes a real problem again.
       # Uses the official Kivy Buildozer Docker image directly rather than
       # the ArtemSBulgakov/buildozer-action wrapper: that wrapper builds an
       # extra Docker layer on top of the official image which installs
