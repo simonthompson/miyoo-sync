@@ -6,6 +6,7 @@ from pathlib import Path
 
 from kivy.app import App
 from kivy.core.window import Window
+from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
@@ -347,14 +348,42 @@ class MiyooSyncApp(App):
             btn.set_rounded_bg_color(COLOR_CONTAINER_ACTIVE if k == mode else COLOR_CONTAINER)
         self.render_filtered_view()
 
-    def show_popup(self, title, message):
+    def show_popup(self, title, message, action_text=None, action_callback=None):
+        """Popup with a message, and optionally one prominent action button
+        (e.g. 'Grant Access') in addition to the close button — so the fix
+        for a problem is right there in the dialog instead of a separate
+        control the person has to go find afterward."""
+        outer = BoxLayout(orientation="vertical", spacing=12, padding=[4, 4, 4, 4])
+
         content = Label(text=message, font_size="13sp", color=COLOR_TEXT_HIGH, halign="left", valign="top")
         content.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0] - 20, None)))
-        popup = Popup(
-            title=title,
-            content=content,
-            size_hint=(0.85, 0.5)
+        outer.add_widget(content)
+
+        popup = Popup(title=title, content=outer, size_hint=(0.85, 0.5))
+
+        button_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=8)
+        if action_text and action_callback:
+            def _run_action(*_a):
+                popup.dismiss()
+                action_callback()
+            action_btn = RoundedButton(
+                bg_color=COLOR_PRIMARY, radius=14,
+                text=action_text, font_size="14sp", bold=True,
+                color=COLOR_ON_PRIMARY
+            )
+            action_btn.bind(on_release=_run_action)
+            button_row.add_widget(action_btn)
+
+        close_btn = RoundedButton(
+            bg_color=COLOR_CONTAINER, radius=14,
+            text="Close" if (action_text and action_callback) else "OK",
+            font_size="13sp", color=COLOR_TEXT_HIGH,
+            size_hint_x=0.4 if (action_text and action_callback) else 1
         )
+        close_btn.bind(on_release=lambda *_a: popup.dismiss())
+        button_row.add_widget(close_btn)
+
+        outer.add_widget(button_row)
         popup.open()
 
     def safely_eject(self):
@@ -392,8 +421,10 @@ class MiyooSyncApp(App):
             self.show_popup(
                 "Storage Permission Needed",
                 "Miyoo Sync needs \"All files access\" to read your saves "
-                "on Android 11+.\n\nTap the button below to open Settings, "
-                "enable it for Miyoo Sync, then come back and hit Rescan."
+                "on Android 11+.\n\nTap Grant Access below to open Settings, "
+                "enable it for Miyoo Sync, then come back and hit Rescan.",
+                action_text="Grant Access",
+                action_callback=open_all_files_access_settings
             )
             return
 
@@ -596,6 +627,19 @@ class MiyooSyncApp(App):
         if not active:
             return
 
+        # Give immediate visual feedback the instant the button is tapped.
+        # The actual file copying is fast but blocks the UI thread while it
+        # runs, so without this the button press could look like it did
+        # nothing at all for however long the copy takes. Deferring the
+        # real work to the next frame (Clock.schedule_once) lets Kivy
+        # actually paint this state before the blocking work starts.
+        self.sync_button.disabled = True
+        self.sync_button.set_rounded_bg_color(COLOR_CONTAINER_ACTIVE)
+        self.sync_button.color = COLOR_TEXT_HIGH
+        self.sync_button.text = f"SYNCING {len(active)} ITEM(S)..."
+        Clock.schedule_once(lambda _dt: self._run_sync(active), 0)
+
+    def _run_sync(self, active):
         try:
             self._do_sync(active)
         except Exception as exc:
@@ -608,6 +652,7 @@ class MiyooSyncApp(App):
                 "it), then hit Rescan and try again."
             )
             traceback.print_exc()
+            self.update_sync_button()
 
     def _do_sync(self, active):
         nova_save_roots, _ = find_android_roots()

@@ -8,7 +8,12 @@ icon.filename = %(source.dir)s/icon.png
 icon.adaptive_foreground.filename = %(source.dir)s/icon_foreground.png
 icon.adaptive_background.filename = %(source.dir)s/icon_background.png
 presplash.filename = %(source.dir)s/presplash.png
-version = 1.0.0
+version = 1.1.1
+# Must increase by at least 1 on every release that's meant to install as
+# an update over a previous one — Android refuses to install an "update"
+# whose version code isn't >= what's already on the device. Bump this
+# alongside `version` above each time.
+android.numeric_version = 2
 requirements = python3,kivy
 orientation = landscape
 android.wakelock = False

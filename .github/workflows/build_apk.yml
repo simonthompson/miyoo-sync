@@ -37,10 +37,19 @@ jobs:
       # packages for the Ubuntu release the wrapper's base image pulls in
       # (apt update 404s before Buildozer ever runs). The official image
       # already ships a working JDK, so this sidesteps the problem.
+      # Mount a fixed debug keystore (committed under ci/) so every build is
+      # signed with the same key. Without this, the Android build tools
+      # auto-generate a NEW random debug key in each fresh CI container,
+      # which means every release has a different signature — and Android
+      # refuses to install an "update" whose signature doesn't match what's
+      # already on the device (it just fails silently rather than
+      # overwriting), so nothing ever actually updates on the phone even
+      # though the new APK is correct.
       - name: Build with Buildozer (official image)
         run: |
           yes | docker run --rm -i \
             --volume "${{ github.workspace }}":/home/user/hostcwd \
+            --volume "${{ github.workspace }}/ci/debug.keystore":/home/user/.android/debug.keystore \
             ghcr.io/kivy/buildozer:latest \
             android debug
 
